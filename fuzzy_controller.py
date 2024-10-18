@@ -1,4 +1,5 @@
 import matplotlib.pyplot as plt 
+from matplotlib.animation import FuncAnimation
 
 class FuzzyController:
     def __init__(self):
@@ -48,42 +49,49 @@ class FuzzyController:
         self.resistance_tank = max(self.resistance_tank - dynamic_flow, 0)
 
     def simulate(self, steps=60):
-        natural_levels = []
-        resistance_levels = []
-        pump_powers = []
+        self.natural_levels = []
+        self.resistance_levels = []
+        self.pump_powers = []
 
         for _ in range(steps):
             self.control_pump()
             self.update_tanks()
 
-            natural_levels.append(self.natural_tank)
-            resistance_levels.append(self.resistance_tank)
-            pump_powers.append(self.pump_power)
+            self.natural_levels.append(self.natural_tank)
+            self.resistance_levels.append(self.resistance_tank)
+            self.pump_powers.append(self.pump_power)
 
-        self.plot_results(natural_levels, resistance_levels, pump_powers)
+        self.animate_results()
 
-    def plot_results(self, natural_levels, resistance_levels, pump_powers):
-        fig, ax1 = plt.subplots(figsize=(10, 6))
+    def animate_results(self):
+            fig, (ax1, ax2) = plt.subplots(2, 1)
 
-        ax1.set_xlabel('Czas (kroki)')
-        ax1.set_ylabel('Poziom wody (zbiornik naturalny)', color='tab:blue')
-        ax1.plot(natural_levels, color='tab:blue', label='Poziom wody')
-        ax1.tick_params(axis='y', labelcolor='tab:blue')
+            ax1.set_xlim(0, len(self.natural_levels))
+            ax1.set_ylim(0, self.tank_capacity)
+            ax1.set_xlabel('Czas (kroki)')
+            ax1.set_ylabel('Poziom wody')
+            natural_line, = ax1.plot([], [], color='blue', label='Naturalny zbiornik')
+            resistance_line, = ax1.plot([], [], color='green', label='Rezystancyjny zbiornik')
+            ax1.legend(loc='upper right')
 
-        ax2 = ax1.twinx()
-        ax2.set_ylabel('Moc pompy', color='tab:red')
-        ax2.plot(pump_powers, color='tab:red', linestyle='dashed', label='Moc pompy')
-        ax2.tick_params(axis='y', labelcolor='tab:red')
+            ax2.set_xlim(0, len(self.pump_powers))
+            ax2.set_ylim(0, 100)
+            ax2.set_xlabel('Czas (kroki)')
+            ax2.set_ylabel('Moc pompki (%)')
+            pump_line, = ax2.plot([], [], color='red', label='Moc pompki')
+            ax2.legend(loc='upper right')
 
-        ax3 = ax1.twinx()
-        ax3.spines.right.set_position(("outward", 60))  
-        ax3.set_ylabel('Poziom wody (zbiornik rezystancyjny)', color='tab:green')
-        ax3.plot(resistance_levels, color='tab:green', label='Poziom wody (rezystancyjny)')
-        ax3.tick_params(axis='y', labelcolor='tab:green')
+            def update(frame):
+                natural_line.set_data(range(frame), self.natural_levels[:frame])
+                resistance_line.set_data(range(frame), self.resistance_levels[:frame])
 
-        fig.tight_layout()
-        plt.title('Symulacja sterowania poziomem wody za pomocą logiki rozmytej')
-        plt.show()
+                pump_line.set_data(range(frame), self.pump_powers[:frame])
+
+                return natural_line, resistance_line, pump_line
+
+            ani = FuncAnimation(fig, update, frames=len(self.natural_levels), interval=100, blit=True)
+            plt.tight_layout()
+            plt.show()
 
 controller = FuzzyController()
 controller.simulate()
