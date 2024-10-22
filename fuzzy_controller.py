@@ -4,10 +4,11 @@ from matplotlib.animation import FuncAnimation
 class FuzzyController:
     def __init__(self):
         self.tank_capacity = 100  
-        self.natural_tank = 50 
-        self.resistance_tank = 100 
+        self.natural_tank = 70 
+        self.resistance_tank = 0 
         self.pump_power = 0
-        self.leak_rate = 0.2
+        self.leak_rate = 0.05
+        self.fill_rate = 0.5
 
     def triangular_membership(self, x, a, b, c):
         left_slope = (x - a) / (b - a) if a != b else 0
@@ -16,9 +17,9 @@ class FuzzyController:
 
 
     def fuzzify(self, level):
-        low = self.triangular_membership(level, 0, 0, 50)
-        medium = self.triangular_membership(level, 25, 50, 75)
-        high = self.triangular_membership(level, 50, 100, 100)
+        low = self.triangular_membership(level, 0, 20, 40)
+        medium = self.triangular_membership(level, 30, 50, 70)
+        high = self.triangular_membership(level, 60, 80, 100)
         return {'low': low, 'medium': medium, 'high': high}
 
     def defuzzify(self, power_levels):
@@ -31,24 +32,26 @@ class FuzzyController:
         fuzzy_values = self.fuzzify(water_level)
 
         power_levels = {
-            0: fuzzy_values['high'],  
+            0: fuzzy_values['low'],  
             50: fuzzy_values['medium'], 
-            100: fuzzy_values['low'] 
+            100: fuzzy_values['high'] 
         }
 
         self.pump_power = self.defuzzify(power_levels)
 
     def update_tanks(self):
-        flow = self.pump_power / 10
-        level_difference = self.natural_tank - self.resistance_tank
-        dynamic_flow = flow + 0.05 * level_difference 
+         
+        self.natural_tank = min(self.natural_tank + self.fill_rate, self.tank_capacity)
+        
+        transfer_rate = 1.0 
+        amount_to_transfer = min(transfer_rate, self.natural_tank)
+        self.natural_tank = max(self.natural_tank - amount_to_transfer, 0)
+        self.resistance_tank = min(self.resistance_tank + amount_to_transfer, self.tank_capacity)
 
-        self.natural_tank = min(
-            self.natural_tank + dynamic_flow - self.leak_rate, self.tank_capacity
-        )
-        self.resistance_tank = max(self.resistance_tank - dynamic_flow, 0)
+        self.natural_tank = max(self.natural_tank - self.leak_rate, 0)
+        self.resistance_tank = max(self.resistance_tank - self.leak_rate, 0)
 
-    def simulate(self, steps=60):
+    def simulate(self, steps=80):
         self.natural_levels = []
         self.resistance_levels = []
         self.pump_powers = []
