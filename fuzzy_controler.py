@@ -4,7 +4,6 @@ import numpy as np
 
 class FuzzyController:
     def __init__(self):
-        # Parametry zbiornika
         self.tank_capacity = 100
         self.natural_level = 30
         self.safe_level = 40
@@ -16,31 +15,40 @@ class FuzzyController:
         self.leak_rate = 0.2
         self.pump_active = True
 
-        # Zbiory rozmyte wejściowe i wyjściowe
+        # Define the terms for fuzzification
         self.x_terms = {
-            "low": (0, self.natural_level, self.safe_level),
+            "low": (self.natural_level, self.safe_level, self.warning_level),
             "medium": (self.safe_level, self.warning_level, self.alarm_level),
-            "high": (self.warning_level, self.alarm_level, self.tank_capacity + 10)  # Poszerzenie zakresu
+            "high": (self.warning_level, self.alarm_level, self.tank_capacity + 10)
         }
+        
         self.y_terms = {
             "low": (0, 0, 50),
             "medium": (25, 50, 75),
-            "high": (50, 100, 150)
+            "high": (25, 50, 100),
+            "low_medium": (0, 25, 50),  
+            "medium_high": (25, 50, 100)
         }
+
+        # Expanded rule base
         self.rules = {
-            "low": "low",
-            "medium": "medium",
-            "high": "high"
+            "low": ["low"],
+            "medium": ["medium"],
+            "high": ["high"],
+            "low_medium": ["low", "medium"],
+            "medium_high": ["medium", "high"]
         }
 
     def triangular_membership(self, x, a, b, c):
-        """Oblicza przynależność wartości x do funkcji trójkątnej."""
+        """Calculates the membership degree for a triangular function."""
         left_slope = (x - a) / (b - a) if a != b else 0
         right_slope = (c - x) / (c - b) if b != c else 0
-        return max(min(left_slope, right_slope), 0)
+        membership_value = max(min(left_slope, right_slope), 0)
+        print(f"[DEBUG] x={x}, a={a}, b={b}, c={c}, membership={membership_value}")
+        return membership_value
 
     def fuzzify(self, value, terms):
-        """Rozmywa wartość wejściową w zbiór przynależności."""
+        """Fuzzifies the input value into fuzzy sets."""
         memberships = {
             term: self.triangular_membership(value, *params)
             for term, params in terms.items()
@@ -49,21 +57,28 @@ class FuzzyController:
         return memberships
 
     def inference(self, input_membership):
-        """Przeprowadza wnioskowanie na podstawie reguł."""
+        """Performs inference based on the fuzzy rules."""
         output_membership = {term: 0 for term in self.y_terms}
-        for input_term, output_term in self.rules.items():
-            output_membership[output_term] = max(output_membership[output_term], input_membership[input_term])
+
+        # Evaluate rules based on input membership
+        for input_term, output_terms in self.rules.items():
+            # Get the maximum membership value for the output terms
+            max_membership = max(input_membership[input_term] for input_term in output_terms)
+            for output_term in output_terms:
+                output_membership[output_term] = max(output_membership[output_term], max_membership)
+
         print(f"[DEBUG] Inference: {output_membership}")
         return output_membership
 
     def aggregate(self, output_membership):
-        """Agreguje wynikowe termy."""
-        y = np.arange(0, 101, 1)  # Zakres zmiennej wyjściowej
+        """Aggregates the output fuzzy sets."""
+        y = np.arange(0, 101, 1)  # Range for the output variable
         aggregated = np.zeros_like(y, dtype=float)
+
         for term, membership in output_membership.items():
             start, peak, end = self.y_terms[term]
             print(f"[DEBUG] Aggregating {term}: start={start}, peak={peak}, end={end}, membership={membership}")
-            
+
             term_membership = np.maximum(
                 np.minimum(
                     (y - start) / (peak - start) if peak != start else 0,
@@ -71,28 +86,29 @@ class FuzzyController:
                 ),
                 0
             )
+            print(f"[DEBUG] Term membership: {term_membership}")
             aggregated = np.maximum(aggregated, np.minimum(term_membership, membership))
+
         print(f"[DEBUG] Aggregated result: {aggregated}")
         return y, aggregated
 
-
     def defuzzify(self, y, aggregated):
-        """Wyostrza zbiór wynikowy za pomocą środka ciężkości."""
+        """Defuzzifies the aggregated result using center of gravity."""
         numerator = np.sum(y * aggregated)
         denominator = np.sum(aggregated)
-        result = numerator / denominator if denominator != 0 else 0
+        result = numerator / denominator
         print(f"[DEBUG] Defuzzified pump power: {result}")
         return result
 
     def control_pump(self):
-        """Steruje mocą pompy na podstawie logiki rozmytej."""
+        """Controls the pump power based on fuzzy logic."""
         input_membership = self.fuzzify(self.natural_tank, self.x_terms)
         output_membership = self.inference(input_membership)
         y, aggregated = self.aggregate(output_membership)
         self.pump_power = self.defuzzify(y, aggregated)
 
     def update_tanks(self):
-        """Aktualizuje poziomy zbiorników."""
+        """Updates the tank levels based on pump output and leakage."""
         flow = self.pump_power / 10
         dynamic_flow = min(flow, self.natural_tank - self.safe_level)
         self.natural_tank -= dynamic_flow + self.leak_rate
