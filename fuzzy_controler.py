@@ -13,7 +13,6 @@ class FuzzyController:
         self.resistance_tank = 0
         self.pump_power = 100
         self.leak_rate = 0.2
-        self.pump_active = True
 
         # Define the terms for fuzzification
         self.x_terms = {
