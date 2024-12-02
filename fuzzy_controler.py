@@ -2,119 +2,113 @@ import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 import numpy as np
 
+
 class FuzzyController:
     def __init__(self):
-        self.tank_capacity = 100
-        self.natural_level = 30
-        self.safe_level = 40
-        self.warning_level = 60
-        self.alarm_level = 75
-        self.natural_tank = self.tank_capacity
-        self.resistance_tank = 0
-        self.pump_power = 100
+        self.tank_capacity = 99
+        self.natural_tank = 30  # Initial level
+        self.additional_tank = 0  # Additional tank initial level
+        self.additional_tank_capacity = 50  # Additional tank capacity
         self.leak_rate = 0.2
-        self.pump_active = True
+        self.pump_power = 0  # Initial pump power
 
-        # Define the terms for fuzzification
+        # Define fuzzy sets for input (tank level) and output (pump power)
         self.x_terms = {
-            "low": (self.natural_level, self.safe_level, self.warning_level),
-            "medium": (self.safe_level, self.warning_level, self.alarm_level),
-            "high": (self.warning_level, self.alarm_level, self.tank_capacity + 10)
+            "A": (0, 0, 30),  # Adjust low range
+            "B": (20, 50, 80),  # Adjust medium range
+            "C": (60, 100, 100)  # Adjust high range
         }
-        
+
         self.y_terms = {
-            "low": (0, 0, 50),
-            "medium": (25, 50, 75),
-            "high": (25, 50, 100),
-            "low_medium": (0, 25, 50),  
-            "medium_high": (25, 50, 100)
+            "D": (0, 10, 30),  # Adjust low pump power
+            "E": (20, 50, 80),  # Adjust medium pump power
+            "F": (60, 80, 100)  # Adjust high pump power
         }
 
-        # Expanded rule base
+
+        # Fuzzy rules
         self.rules = {
-            "low": ["low"],
-            "medium": ["medium"],
-            "high": ["high"],
-            "low_medium": ["low", "medium"],
-            "medium_high": ["medium", "high"]
+            "A": "D",
+            "B": "E",
+            "C": "F"
         }
 
-    def triangular_membership(self, x, a, b, c):
-        """Calculates the membership degree for a triangular function."""
-        left_slope = (x - a) / (b - a) if a != b else 0
-        right_slope = (c - x) / (c - b) if b != c else 0
-        membership_value = max(min(left_slope, right_slope), 0)
-        print(f"[DEBUG] x={x}, a={a}, b={b}, c={c}, membership={membership_value}")
-        return membership_value
+    @staticmethod
+    def triangular_membership(x, a, b, c):
+        """Calculate the membership degree for a triangular function, handling edge cases."""
+        left_slope = (x - a) / (b - a) if b != a else 0  # Avoid division by zero
+        right_slope = (c - x) / (c - b) if c != b else 0  # Avoid division by zero
+        return max(min(left_slope, right_slope), 0)
 
     def fuzzify(self, value, terms):
-        """Fuzzifies the input value into fuzzy sets."""
-        memberships = {
-            term: self.triangular_membership(value, *params)
-            for term, params in terms.items()
-        }
-        print(f"[DEBUG] Fuzzify: {value} -> {memberships}")
+        memberships = {term: self.triangular_membership(value, *params) for term, params in terms.items()}
+        print(f"[DEBUG] Tank Level: {value}, Membership Degrees: {memberships}")
         return memberships
 
     def inference(self, input_membership):
-        """Performs inference based on the fuzzy rules."""
         output_membership = {term: 0 for term in self.y_terms}
-
-        # Evaluate rules based on input membership
-        for input_term, output_terms in self.rules.items():
-            # Get the maximum membership value for the output terms
-            max_membership = max(input_membership[input_term] for input_term in output_terms)
-            for output_term in output_terms:
-                output_membership[output_term] = max(output_membership[output_term], max_membership)
-
-        print(f"[DEBUG] Inference: {output_membership}")
+        for input_term, output_term in self.rules.items():
+            output_membership[output_term] = max(output_membership[output_term], input_membership[input_term])
+        print(f"[DEBUG] Output Membership Degrees: {output_membership}")
         return output_membership
 
     def aggregate(self, output_membership):
-        """Aggregates the output fuzzy sets."""
-        y = np.arange(0, 101, 1)  # Range for the output variable
-        aggregated = np.zeros_like(y, dtype=float)
-
+        y_range = np.arange(0, 101, 1)
+        aggregated = np.zeros_like(y_range, dtype=float)
         for term, membership in output_membership.items():
-            start, peak, end = self.y_terms[term]
-            print(f"[DEBUG] Aggregating {term}: start={start}, peak={peak}, end={end}, membership={membership}")
-
-            term_membership = np.maximum(
-                np.minimum(
-                    (y - start) / (peak - start) if peak != start else 0,
-                    (end - y) / (end - peak) if end != peak else 0
-                ),
+            a, b, c = self.y_terms[term]
+            term_curve = np.maximum(
+                np.minimum((y_range - a) / (b - a) if b != a else 0,
+                        (c - y_range) / (c - b) if c != b else 0),
                 0
             )
-            print(f"[DEBUG] Term membership: {term_membership}")
-            aggregated = np.maximum(aggregated, np.minimum(term_membership, membership))
+            aggregated = np.maximum(aggregated, np.minimum(term_curve, membership))
 
-        print(f"[DEBUG] Aggregated result: {aggregated}")
-        return y, aggregated
+        print(f"[DEBUG] Aggregated Output (clean): {aggregated}")
+        return y_range, aggregated
+
+
 
     def defuzzify(self, y, aggregated):
-        """Defuzzifies the aggregated result using center of gravity."""
-        numerator = np.sum(y * aggregated)
-        denominator = np.sum(aggregated)
-        result = numerator / denominator
-        print(f"[DEBUG] Defuzzified pump power: {result}")
-        return result
+        """Defuzzify the aggregated fuzzy set using the center of gravity method."""
+        numerator = np.nansum(y * aggregated)  # Use nansum to handle NaN safely
+        denominator = np.nansum(aggregated)   # Use nansum to avoid NaN propagation
+
+        if denominator == 0:  # Safeguard against invalid defuzzification
+            print("[DEBUG] Denominator is zero during defuzzification. Returning 0 as default pump power.")
+            return 0  # Default pump power when no meaningful output exists
+
+        return numerator / denominator
+
+
 
     def control_pump(self):
-        """Controls the pump power based on fuzzy logic."""
+        # Fuzzification
         input_membership = self.fuzzify(self.natural_tank, self.x_terms)
+
+        # Inference
         output_membership = self.inference(input_membership)
+
+        # Aggregation
         y, aggregated = self.aggregate(output_membership)
+
+        # Defuzzification
         self.pump_power = self.defuzzify(y, aggregated)
+        print(f"[DEBUG] Pump Power: {self.pump_power}")
+        return y, aggregated, self.pump_power
+
 
     def update_tanks(self):
-        """Updates the tank levels based on pump output and leakage."""
-        flow = self.pump_power / 10
-        dynamic_flow = min(flow, self.natural_tank - self.safe_level)
-        self.natural_tank -= dynamic_flow + self.leak_rate
-        self.resistance_tank = max(min(self.resistance_tank + dynamic_flow, self.tank_capacity), 0)
-        self.natural_tank = max(self.natural_tank, self.natural_level)
+        """Update the tank levels based on pump output and leakage."""
+        flow_rate = self.pump_power / 10
+        excess_flow = max(0, self.natural_tank + flow_rate - self.tank_capacity)
 
+        # Water flows to the additional tank if the natural tank is full
+        self.natural_tank += flow_rate - excess_flow - self.leak_rate
+        self.natural_tank = max(0, min(self.tank_capacity, self.natural_tank))
+
+        self.additional_tank += excess_flow
+        self.additional_tank = max(0, min(self.additional_tank_capacity, self.additional_tank))
 
 
 class Application:
@@ -122,56 +116,64 @@ class Application:
         self.controller = FuzzyController()
         self.data_limit = 100
 
-        # Inicjalizacja wykresu
-        self.fig, (self.ax1, self.ax2, self.ax3) = plt.subplots(3, 1, figsize=(6, 8), gridspec_kw={'hspace': 0.5})
-        self.ax1.set_title("Poziom wody - Naturalny zbiornik")
-        self.ax2.set_title("Moc pompy")
-        self.ax3.set_title("Poziom wody - Zbiornik retencyjny")
+        # Initialize plots
+        self.fig, (self.ax1, self.ax2) = plt.subplots(2, 1, figsize=(6, 8))
+        self.ax1.set_title("Tank Levels and Pump Power")
+        self.ax2.set_title("Additional Tank Level")
 
-        # Linie na wykresie
-        self.water_data = []
-        self.pump_power_data = []
-        self.resistance_tank_data = []
-        self.line1, = self.ax1.plot([], [], label="Naturalny zbiornik", color="blue")
-        self.line2, = self.ax2.plot([], [], label="Moc pompy", color="red")
-        self.line3, = self.ax3.plot([], [], label="Zbiornik retencyjny", color="green")
+        # Plot elements
+        self.tank_levels, = self.ax1.plot([], [], label="Natural Tank", color="green")
+        self.pump_power, = self.ax1.plot([], [], label="Pump Power", color="orange")
+        self.additional_tank, = self.ax2.plot([], [], label="Additional Tank", color="blue")
+        self.ax1.legend()
+        self.ax1.grid()
+        self.ax2.legend()
+        self.ax2.grid()
 
-        # Ustawienia zakresu osi Y
-        self.ax1.set_ylim(-20, 120)
-        self.ax2.set_ylim(-20, 120)
-        self.ax3.set_ylim(-20, 120)
+        # Data storage
+        self.tank_data = []
+        self.power_data = []
+        self.additional_tank_data = []
 
-        # Inicjalizacja animacji
-        self.ani = FuncAnimation(self.fig, self.update_simulation, interval=1000, save_count=100)
+        # Animation
+        self.ani = FuncAnimation(self.fig, self.update_simulation, interval=1000, blit=False)
 
     def update_simulation(self, frame):
-        """Symulacja aktualizacji zbiorników i sterowania pompą."""
-        self.controller.control_pump()
+        # Run the fuzzy controller
+        y, aggregated, pump_power = self.controller.control_pump()
+
+        # Update tanks
         self.controller.update_tanks()
 
-        # Aktualizacja danych do wykresu
-        self.water_data.append(self.controller.natural_tank)
-        self.pump_power_data.append(self.controller.pump_power)
-        self.resistance_tank_data.append(self.controller.resistance_tank)
+        # Append data
+        self.tank_data.append(self.controller.natural_tank)
+        self.power_data.append(pump_power)
+        self.additional_tank_data.append(self.controller.additional_tank)
 
-        # Ograniczenie liczby punktów na wykresie
-        if len(self.water_data) > self.data_limit:
-            self.water_data.pop(0)
-            self.pump_power_data.pop(0)
-            self.resistance_tank_data.pop(0)
+        # Limit data to the last `data_limit` points
+        if len(self.tank_data) > self.data_limit:
+            self.tank_data.pop(0)
+            self.power_data.pop(0)
+            self.additional_tank_data.pop(0)
 
-        # Zaktualizuj wykresy
-        self.update_plot()
+        # Update tank/pump plot
+        x_data = range(len(self.tank_data))
+        self.tank_levels.set_data(x_data, self.tank_data)
+        self.pump_power.set_data(x_data, self.power_data)
 
-    def update_plot(self):
-        self.line1.set_data(range(len(self.water_data)), self.water_data)
-        self.line2.set_data(range(len(self.pump_power_data)), self.pump_power_data)
-        self.line3.set_data(range(len(self.resistance_tank_data)), self.resistance_tank_data)
-        self.ax1.set_xlim(0, len(self.water_data))
-        self.ax2.set_xlim(0, len(self.pump_power_data))
-        self.ax3.set_xlim(0, len(self.resistance_tank_data))
+        # Update additional tank plot
+        self.additional_tank.set_data(x_data, self.additional_tank_data)
+
+        # Rescale axes
+        self.ax1.relim()
+        self.ax1.autoscale_view()
+        self.ax2.relim()
+        self.ax2.autoscale_view()
+
+    def run(self):
+        plt.show()
 
 
-# Uruchomienie aplikacji
+# Run the application
 app = Application()
-plt.show()
+app.run()
