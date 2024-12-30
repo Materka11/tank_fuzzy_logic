@@ -24,9 +24,9 @@ class FuzzyController:
         self.y_terms = {
             "low": (0, 0, 50),
             "medium": (25, 50, 75),
-            "high": (25, 50, 100),
-            "low_medium": (0, 25, 50),  
-            "medium_high": (25, 50, 100)
+            "high": (50, 75, 100),
+            # "low_medium": (0, 25, 50),  
+            # "medium_high": (50, 75, 100)
         }
 
         # Expanded rule base
@@ -34,16 +34,17 @@ class FuzzyController:
             "low": ["low"],
             "medium": ["medium"],
             "high": ["high"],
-            "low_medium": ["low", "medium"],
-            "medium_high": ["medium", "high"]
+            # "low_medium": ["low", "medium"],
+            # "medium_high": ["medium", "high"]
         }
 
     def triangular_membership(self, x, a, b, c):
         """Calculates the membership degree for a triangular function."""
+        if x < a or x > c:
+            return 0
         left_slope = (x - a) / (b - a) if a != b else 0
         right_slope = (c - x) / (c - b) if b != c else 0
         membership_value = max(min(left_slope, right_slope), 0)
-        print(f"[DEBUG] x={x}, a={a}, b={b}, c={c}, membership={membership_value}")
         return membership_value
 
     def fuzzify(self, value, terms):
@@ -52,7 +53,6 @@ class FuzzyController:
             term: self.triangular_membership(value, *params)
             for term, params in terms.items()
         }
-        print(f"[DEBUG] Fuzzify: {value} -> {memberships}")
         return memberships
 
     def inference(self, input_membership):
@@ -61,12 +61,11 @@ class FuzzyController:
 
         # Evaluate rules based on input membership
         for input_term, output_terms in self.rules.items():
-            # Get the maximum membership value for the output terms
-            max_membership = max(input_membership[input_term] for input_term in output_terms)
-            for output_term in output_terms:
-                output_membership[output_term] = max(output_membership[output_term], max_membership)
+            if input_term in input_membership:  # Ensure the term exists in input membership
+                membership_value = input_membership[input_term]
+                for output_term in output_terms:
+                    output_membership[output_term] = max(output_membership[output_term], membership_value)
 
-        print(f"[DEBUG] Inference: {output_membership}")
         return output_membership
 
     def aggregate(self, output_membership):
@@ -76,8 +75,6 @@ class FuzzyController:
 
         for term, membership in output_membership.items():
             start, peak, end = self.y_terms[term]
-            print(f"[DEBUG] Aggregating {term}: start={start}, peak={peak}, end={end}, membership={membership}")
-
             term_membership = np.maximum(
                 np.minimum(
                     (y - start) / (peak - start) if peak != start else 0,
@@ -85,19 +82,17 @@ class FuzzyController:
                 ),
                 0
             )
-            print(f"[DEBUG] Term membership: {term_membership}")
             aggregated = np.maximum(aggregated, np.minimum(term_membership, membership))
 
-        print(f"[DEBUG] Aggregated result: {aggregated}")
         return y, aggregated
 
     def defuzzify(self, y, aggregated):
         """Defuzzifies the aggregated result using center of gravity."""
-        numerator = np.sum(y * aggregated)
         denominator = np.sum(aggregated)
-        result = numerator / denominator
-        print(f"[DEBUG] Defuzzified pump power: {result}")
-        return result
+        if denominator == 0:
+            return 0
+        numerator = np.sum(y * aggregated)
+        return numerator / denominator
 
     def control_pump(self):
         """Controls the pump power based on fuzzy logic."""
@@ -109,11 +104,10 @@ class FuzzyController:
     def update_tanks(self):
         """Updates the tank levels based on pump output and leakage."""
         flow = self.pump_power / 10
-        dynamic_flow = min(flow, self.natural_tank - self.safe_level)
+        dynamic_flow = max(0, min(flow, self.natural_tank - self.safe_level))
         self.natural_tank -= dynamic_flow + self.leak_rate
         self.resistance_tank = max(min(self.resistance_tank + dynamic_flow, self.tank_capacity), 0)
         self.natural_tank = max(self.natural_tank, self.natural_level)
-
 
 
 class Application:
@@ -121,45 +115,44 @@ class Application:
         self.controller = FuzzyController()
         self.data_limit = 100
 
-        # Inicjalizacja wykresu
+        # Initialize plots
         self.fig, (self.ax1, self.ax2, self.ax3) = plt.subplots(3, 1, figsize=(6, 8), gridspec_kw={'hspace': 0.5})
-        self.ax1.set_title("Poziom wody - Naturalny zbiornik")
-        self.ax2.set_title("Moc pompy")
-        self.ax3.set_title("Poziom wody - Zbiornik retencyjny")
+        self.ax1.set_title("Water Level - Natural Tank")
+        self.ax2.set_title("Pump Power")
+        self.ax3.set_title("Water Level - Retention Tank")
 
-        # Linie na wykresie
+        # Plot lines
         self.water_data = []
         self.pump_power_data = []
         self.resistance_tank_data = []
-        self.line1, = self.ax1.plot([], [], label="Naturalny zbiornik", color="blue")
-        self.line2, = self.ax2.plot([], [], label="Moc pompy", color="red")
-        self.line3, = self.ax3.plot([], [], label="Zbiornik retencyjny", color="green")
+        self.line1, = self.ax1.plot([], [], label="Natural Tank", color="blue")
+        self.line2, = self.ax2.plot([], [], label="Pump Power", color="red")
+        self.line3, = self.ax3.plot([], [], label="Retention Tank", color="green")
 
-        # Ustawienia zakresu osi Y
+        # Y-axis limits
         self.ax1.set_ylim(-20, 120)
         self.ax2.set_ylim(-20, 120)
         self.ax3.set_ylim(-20, 120)
 
-        # Inicjalizacja animacji
+        # Initialize animation
         self.ani = FuncAnimation(self.fig, self.update_simulation, interval=1000, save_count=100)
 
     def update_simulation(self, frame):
-        """Symulacja aktualizacji zbiorników i sterowania pompą."""
+        """Simulation of tank updates and pump control."""
         self.controller.control_pump()
         self.controller.update_tanks()
 
-        # Aktualizacja danych do wykresu
+        # Update data for plots
         self.water_data.append(self.controller.natural_tank)
         self.pump_power_data.append(self.controller.pump_power)
         self.resistance_tank_data.append(self.controller.resistance_tank)
 
-        # Ograniczenie liczby punktów na wykresie
-        if len(self.water_data) > self.data_limit:
-            self.water_data.pop(0)
-            self.pump_power_data.pop(0)
-            self.resistance_tank_data.pop(0)
+        # Limit the number of points in the plot
+        self.water_data = self.water_data[-self.data_limit:]
+        self.pump_power_data = self.pump_power_data[-self.data_limit:]
+        self.resistance_tank_data = self.resistance_tank_data[-self.data_limit:]
 
-        # Zaktualizuj wykresy
+        # Update plots
         self.update_plot()
 
     def update_plot(self):
@@ -171,6 +164,6 @@ class Application:
         self.ax3.set_xlim(0, len(self.resistance_tank_data))
 
 
-# Uruchomienie aplikacji
+# Run the application
 app = Application()
 plt.show()
